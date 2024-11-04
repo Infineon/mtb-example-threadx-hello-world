@@ -46,6 +46,7 @@
 #include "cyhal.h"
 #include "cybsp.h"
 #include "cy_retarget_io.h"
+#include "cyabs_rtos.h"
 
 
 /*******************************************************************************
@@ -67,7 +68,6 @@ static void isr_timer(void *callback_arg, cyhal_timer_event_t event);
 /*******************************************************************************
 * Global Variables
 *******************************************************************************/
-bool timer_interrupt_flag = false;
 bool led_blink_active_flag = true;
 
 /* Variable for storing character read from terminal */
@@ -114,6 +114,9 @@ int main(void)
     /* Enable global interrupts */
     __enable_irq();
 
+    /* Prevent the device from going to sleep while the UART is active */
+    cyhal_syspm_lock_deepsleep();
+
     /* Initialize retarget-io to use the debug UART port */
     result = cy_retarget_io_init(CYBSP_DEBUG_UART_TX, CYBSP_DEBUG_UART_RX,
             CY_RETARGET_IO_BAUDRATE);
@@ -154,8 +157,14 @@ int main(void)
 
     for (;;)
     {
+        /*Check if UART has character to be read */
+        while(!cyhal_uart_readable(&cy_retarget_io_uart_obj))
+        {
+            cy_rtos_delay_milliseconds(100);
+        }
+
         /* Check if 'Enter' key was pressed */
-        if (cyhal_uart_getc(&cy_retarget_io_uart_obj, &uart_read_value, 1) 
+        if (cyhal_uart_getc(&cy_retarget_io_uart_obj, &uart_read_value, 0) 
              == CY_RSLT_SUCCESS)
         {
             if (uart_read_value == '\r')
@@ -179,16 +188,6 @@ int main(void)
 
                 led_blink_active_flag ^= 1;
             }
-        }
-
-        /* Check if timer elapsed (interrupt fired) and toggle the LED */
-        if (timer_interrupt_flag)
-        {
-            /* Clear the flag */
-            timer_interrupt_flag = false;
-
-            /* Invert the USER LED state */
-            cyhal_gpio_toggle(CYBSP_USER_LED);
         }
     }
 }
@@ -274,8 +273,8 @@ static void isr_timer(void *callback_arg, cyhal_timer_event_t event)
     (void) callback_arg;
     (void) event;
 
-    /* Set the interrupt flag and process it from the main while(1) loop */
-    timer_interrupt_flag = true;
+    /* Invert the USER LED state */
+    cyhal_gpio_toggle(CYBSP_USER_LED);
 }
 
 /* [] END OF FILE */
